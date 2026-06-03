@@ -29,9 +29,15 @@ const colorPalette = [
 
 let courses = [];
 let nextId = 1;
+let editingCourseId = null; 
 
-function getColorForCourse(id) {
-  return colorPalette[(id - 1) % colorPalette.length];
+function getColorForCourseCode(code) {
+  let hash = 0;
+  for (let i = 0; i < code.length; i++) {
+    hash = code.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % colorPalette.length;
+  return colorPalette[index];
 }
 
 function render() {
@@ -85,10 +91,10 @@ function render() {
                         return ''; 
                       }
 
-                      const course = courses.find(c => c.days.includes(day) && c.timeSlotId === slot.id);
+                      const course = courses.find(c => c.day === day && c.timeSlotId === slot.id);
                       
                       if (course) {
-                        const colors = getColorForCourse(course.id);
+                        const colors = getColorForCourseCode(course.code);
                         const isLabClass = course.isLab && (slot.id < timeSlots.length - 1);
                         
                         if (isLabClass) {
@@ -102,7 +108,11 @@ function render() {
                               <div style="color: #64748b; font-size: 11px; margin-top: 4px; font-weight: 500;">Section: <span style="color:#0f172a">${course.section}</span></div>
                               <div style="color: #64748b; font-size: 11px; font-weight: 500;">Room: <span style="color:#0f172a">${course.room}</span></div>
                               ${course.isLab ? '<div style="display:inline-block; background: #fee2e2; color: #ef4444; font-size: 10px; font-weight: 600; margin-top: 6px; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Lab (2 hrs)</div>' : ''}
-                              <button onclick="deleteCourse(${course.id})" class="btn-delete" title="Remove Course"><i class="ti ti-trash"></i></button>
+                              
+                              <div class="card-actions" style="position: absolute; top: 6px; right: 6px; display: flex; gap: 2px;">
+                                <button onclick="openEditModal(${course.id})" class="btn-action btn-edit" title="Edit Room"><i class="ti ti-pencil"></i></button>
+                                <button onclick="deleteCourse(${course.id})" class="btn-action btn-delete" title="Remove Entire Course"><i class="ti ti-trash"></i></button>
+                              </div>
                             </div>
                           </td>
                         `;
@@ -123,18 +133,18 @@ function render() {
       <div id="modal-overlay" style="display: ${modalOpen ? 'flex' : 'none'}; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 1000;">
         <div style="background: white; border-radius: 16px; padding: 2rem; width: 90%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15); border: 1px solid #000000;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
-            <h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #1e293b; letter-spacing: -0.5px;">Add New Course</h2>
+            <h2 id="modalTitle" style="margin: 0; font-size: 20px; font-weight: 600; color: #1e293b; letter-spacing: -0.5px;">Add New Course</h2>
             <button onclick="closeModal()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:20px;"><i class="ti ti-x"></i></button>
           </div>
           
           <form id="courseForm" style="display: flex; flex-direction: column; gap: 1.25rem;">
-            <div>
+            <div id="courseCodeGroup">
               <label class="form-label">Course Code</label>
               <input type="text" id="courseCode" placeholder="e.g., CSE 2355" class="form-input" required>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-              <div>
+              <div id="sectionGroup">
                 <label class="form-label">Section</label>
                 <input type="text" id="section" placeholder="e.g., A" class="form-input" required>
               </div>
@@ -144,7 +154,7 @@ function render() {
               </div>
             </div>
 
-            <div>
+            <div id="timeSlotGroup">
               <label class="form-label">Time Slot</label>
               <select id="timeSlot" class="form-input" style="appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2364748b%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E'); background-repeat: no-repeat; background-position: right 12px top 50%; background-size: 10px auto;" required>
                 <option value="">Select time slot</option>
@@ -152,12 +162,12 @@ function render() {
               </select>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px dashed #e2e8f0;">
+            <div id="isLabGroup" style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px dashed #e2e8f0;">
               <input type="checkbox" id="isLab" style="width: 16px; height: 16px; cursor: pointer; accent-color: #0f172a;">
               <label for="isLab" style="font-size: 14px; font-weight: 500; color: #334155; cursor: pointer; flex: 1; user-select: none;">This course includes a 2-hour lab (Takes up 2 consecutive slots)</label>
             </div>
 
-            <div>
+            <div id="daysInputGroup">
               <label class="form-label" style="margin-bottom: 0.5rem;">Days</label>
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px;">
                 ${days.map(day => `
@@ -171,7 +181,7 @@ function render() {
 
             <div style="display: flex; gap: 12px; margin-top: 1rem;">
               <button type="button" onclick="closeModal()" class="btn-modal-secondary">Cancel</button>
-              <button type="submit" class="btn-modal-primary">Add to Schedule</button>
+              <button type="submit" id="submitBtn" class="btn-modal-primary">Add to Schedule</button>
             </div>
           </form>
         </div>
@@ -181,57 +191,84 @@ function render() {
 
   const form = document.getElementById('courseForm');
   if (form) {
+    if (editingCourseId !== null) {
+      document.getElementById('modalTitle').innerText = 'Edit Room Number';
+      document.getElementById('submitBtn').innerText = 'Update Room';
+      
+      document.getElementById('courseCodeGroup').style.display = 'none';
+      document.getElementById('sectionGroup').style.display = 'none';
+      document.getElementById('timeSlotGroup').style.display = 'none';
+      document.getElementById('isLabGroup').style.display = 'none';
+      document.getElementById('daysInputGroup').style.display = 'none';
+      
+      document.getElementById('courseCode').required = false;
+      document.getElementById('section').required = false;
+      document.getElementById('timeSlot').required = false;
+    }
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      const code = document.getElementById('courseCode').value.trim();
-      const section = document.getElementById('section').value.trim();
       const room = document.getElementById('room').value.trim();
-      const timeSlotId = parseInt(document.getElementById('timeSlot').value);
-      const isLab = document.getElementById('isLab').checked;
-      
-      const selectedDays = Array.from(document.querySelectorAll('.dayCheckbox:checked'))
-        .map(cb => cb.value);
 
-      if (!code || !section || !room || isNaN(timeSlotId) || selectedDays.length === 0) {
-        alert('Please fill in all fields and select at least one day.');
-        return;
-      }
-
-      const targetSlots = [timeSlotId];
-      if (isLab) {
-        if (timeSlotId === timeSlots.length - 1) {
-          alert('Cannot schedule a 2-hour lab in the final time slot.');
-          return;
+      if (editingCourseId !== null) {
+        const originalCourse = courses.find(c => c.id === editingCourseId);
+        if (originalCourse) {
+          originalCourse.room = room;
         }
-        targetSlots.push(timeSlotId + 1);
-      }
-
-      for (const day of selectedDays) {
-        for (const slotId of targetSlots) {
-          const conflictingCourse = courses.find(c => {
-            if (!c.days.includes(day)) return false;
-            const existingSlots = [c.timeSlotId];
-            if (c.isLab) existingSlots.push(c.timeSlotId + 1);
-            return existingSlots.includes(slotId);
-          });
-
-          if (conflictingCourse) {
-            const slotDetails = timeSlots.find(s => s.id === slotId);
-            alert(`Time slot "${slotDetails.label}" on ${day} is already taken by "${conflictingCourse.code}"!`);
+      } else {
+        const code = document.getElementById('courseCode').value.trim();
+        const section = document.getElementById('section').value.trim();
+        const timeSlotId = parseInt(document.getElementById('timeSlot').value);
+        const isLab = document.getElementById('isLab').checked;
+        
+        let targetSlots = [timeSlotId];
+        if (isLab) {
+          if (timeSlotId === timeSlots.length - 1) {
+            alert('Cannot schedule a 2-hour lab in the final time slot.');
             return;
           }
+          targetSlots.push(timeSlotId + 1);
         }
+
+        const selectedDays = Array.from(document.querySelectorAll('.dayCheckbox:checked'))
+          .map(cb => cb.value);
+
+        if (selectedDays.length === 0) {
+          alert('Please select at least one day.');
+          return;
+        }
+
+        for (const day of selectedDays) {
+          for (const slotId of targetSlots) {
+            const conflictingCourse = courses.find(c => {
+              if (c.day !== day) return false;
+              const existingSlots = [c.timeSlotId];
+              if (c.isLab) existingSlots.push(c.timeSlotId + 1);
+              return existingSlots.includes(slotId);
+            });
+
+            if (conflictingCourse) {
+              const slotDetails = timeSlots.find(s => s.id === slotId);
+              alert(`Time slot "${slotDetails.label}" on ${day} is already taken by "${conflictingCourse.code}"!`);
+              return;
+            }
+          }
+        }
+
+        selectedDays.forEach(day => {
+          // FIX: explicitly using nextId++ here for EACH day loops guarantees unique IDs
+          courses.push({
+            id: nextId++,
+            code,
+            section,
+            room,
+            timeSlotId,
+            isLab,
+            day: day
+          });
+        });
       }
 
-      courses.push({
-        id: nextId++,
-        code,
-        section,
-        room,
-        timeSlotId,
-        isLab,
-        days: selectedDays
-      });
       closeModal();
       render();
     });
@@ -239,17 +276,34 @@ function render() {
 }
 
 function openModal() {
+  editingCourseId = null;
   sessionStorage.setItem('modalOpen', 'true');
   render();
 }
 
+function openEditModal(id) {
+  editingCourseId = id;
+  sessionStorage.setItem('modalOpen', 'true');
+  render();
+
+  const course = courses.find(c => c.id === id);
+  if (course) {
+    document.getElementById('room').value = course.room;
+  }
+}
+
 function closeModal() {
+  editingCourseId = null;
   sessionStorage.removeItem('modalOpen');
   render();
 }
 
 function deleteCourse(id) {
-  courses = courses.filter(c => c.id !== id);
+  const targetCourse = courses.find(c => c.id === id);
+  if (targetCourse) {
+    // Removes all entries sharing the exact course code and section name
+    courses = courses.filter(c => !(c.code === targetCourse.code && c.section === targetCourse.section));
+  }
   render();
 }
 
@@ -257,29 +311,25 @@ function savePDF() {
   const element = document.getElementById('timetable-container');
   if (!element) return;
 
-  // Add a subtle loading cue on the button
   const pdfBtn = document.querySelector('.btn-secondary');
   const originalHtml = pdfBtn.innerHTML;
   pdfBtn.innerHTML = `<i class="ti ti-loader animate-spin"></i> Generating...`;
   pdfBtn.disabled = true;
 
-  // Configure explicit rendering parameters for high-fidelity conversion
   const options = {
     scale: 2,
     useCORS: true,
     allowTaint: true,
     backgroundColor: '#ffffff',
     logging: false,
-    windowWidth: 1400 // Locks standard viewport constraints during virtual snapshot capture
+    windowWidth: 1400 
   };
 
   html2canvas(element, options).then(canvas => {
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('l', 'mm', 'a4');
-    
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
     
-    // Page dimensions calculation for precise aspect ratio fit
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = pdf.internal.pageSize.getHeight();
     
@@ -290,20 +340,17 @@ function savePDF() {
     let imgWidth = allowedWidth;
     let imgHeight = (canvas.height * imgWidth) / canvas.width;
     
-    // Handle edge case scaling down if total height spills past vertical printable zones
     if (imgHeight > allowedHeight) {
       imgHeight = allowedHeight;
       imgWidth = (canvas.width * imgHeight) / canvas.height;
     }
 
-    // Horizontal alignment center offset math positioning
     const xOffset = margin + (allowedWidth - imgWidth) / 2;
     const yOffset = margin + (allowedHeight - imgHeight) / 2;
 
     pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight, undefined, 'FAST');
     pdf.save('weekly-class-matrix.pdf');
     
-    // Reset button state tracking
     pdfBtn.innerHTML = originalHtml;
     pdfBtn.disabled = false;
   }).catch(err => {
@@ -392,25 +439,27 @@ render();
 }
 .btn-modal-secondary:hover { background: #f8fafc !important; }
 
-.course-card .btn-delete {
-  position: absolute;
-  top: 6px;
-  right: 6px;
+.course-card:hover .card-actions .btn-action { opacity: 1; }
+
+.btn-action {
   background: transparent;
   border: none;
   color: #94a3b8;
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
   transition: all 0.15s ease;
 }
-.course-card:hover .btn-delete { opacity: 1; }
-.course-card .btn-delete:hover {
+.btn-edit:hover {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+.btn-delete:hover {
   background: #fee2e2;
   color: #ef4444;
 }
