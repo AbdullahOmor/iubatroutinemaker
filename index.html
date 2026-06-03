@@ -1,0 +1,485 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+
+<div id="root" style="width: 100%; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;"></div>
+
+<script>
+const timeSlots = [
+  { id: 0, start: '08:30', end: '09:30', label: '08:30 am - 09:30 am' },
+  { id: 1, start: '09:35', end: '10:35', label: '09:35 am - 10:35 am' },
+  { id: 2, start: '10:40', end: '11:40', label: '10:40 am - 11:40 am' },
+  { id: 3, start: '11:45', end: '12:45', label: '11:45 am - 12:45 pm' },
+  { id: 4, start: '01:10', end: '02:10', label: '01:10 pm - 02:10 pm' },
+  { id: 5, start: '02:15', end: '03:15', label: '02:15 pm - 03:15 pm' },
+  { id: 6, start: '03:20', end: '04:20', label: '03:20 pm - 04:20 pm' },
+  { id: 7, start: '04:25', end: '05:25', label: '04:25 pm - 05:25 pm' }
+];
+
+const days = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday'];
+
+const colorPalette = [
+  { bg: '#edf2f7', border: '#000000' },
+  { bg: '#ebf8ff', border: '#000000' },
+  { bg: '#f0fff4', border: '#000000' },
+  { bg: '#fffaf0', border: '#000000' },
+  { bg: '#faf5ff', border: '#000000' },
+  { bg: '#fff5f5', border: '#000000' }
+];
+
+let courses = [];
+let nextId = 1;
+
+function getColorForCourse(id) {
+  return colorPalette[(id - 1) % colorPalette.length];
+}
+
+function render() {
+  const root = document.getElementById('root');
+  const modalOpen = sessionStorage.getItem('modalOpen') === 'true';
+  
+  root.innerHTML = `
+    <div style="background: #f8fafc; padding: 2rem; min-height: 100vh; box-sizing: border-box;">
+      <div style="max-width: 1400px; margin: 0 auto;">
+        
+        <div style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; background: white; padding: 1.5rem 2rem; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div>
+            <h1 style="margin: 0 0 0.25rem 0; font-size: 24px; font-weight: 600; color: #1e293b; letter-spacing: -0.5px;">Weekly Class Routine</h1>
+            <p style="margin: 0; font-size: 14px; color: #64748b; font-weight: 500;">Summer 2026</p>
+          </div>
+          <div style="display: flex; gap: 12px;">
+            <button onclick="openModal()" class="btn-primary">
+              <i class="ti ti-plus"></i> Add Course
+            </button>
+            <button onclick="savePDF()" class="btn-secondary">
+              <i class="ti ti-download"></i> Save as PDF
+            </button>
+          </div>
+        </div>
+
+        <div id="timetable-container" style="background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); overflow-x: auto; border: 1px solid #000000; padding: 4px;">
+          <table id="matrix-table" style="width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; background: white;">
+            <colgroup>
+              <col style="width: 110px;">
+              ${timeSlots.map(() => `<col style="width: calc((100% - 110px) / ${timeSlots.length});">`).join('')}
+            </colgroup>
+            <thead>
+              <tr style="background: #0f172a; color: #f8fafc;">
+                <th style="padding: 14px 16px; text-align: left; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-right: 1px solid #000000;">Day / Time</th>
+                ${timeSlots.map((slot, idx) => `
+                  <th style="padding: 14px 12px; text-align: center; font-weight: 500; font-size: 12px; border-right: ${idx === timeSlots.length - 1 ? 'none' : '1px solid #000000'};">
+                    ${slot.label}
+                  </th>
+                `).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${days.map((day, dayIndex) => {
+                let skipCells = 0; 
+                return `
+                  <tr>
+                    <td style="padding: 16px; font-weight: 600; background: #f8fafc; border-right: 1px solid #000000; border-bottom: ${dayIndex === days.length - 1 ? 'none' : '1px solid #000000'}; color: #475569; text-align: left;">${day}</td>
+                    ${timeSlots.map((slot, idx) => {
+                      if (skipCells > 0) {
+                        skipCells--;
+                        return ''; 
+                      }
+
+                      const course = courses.find(c => c.days.includes(day) && c.timeSlotId === slot.id);
+                      
+                      if (course) {
+                        const colors = getColorForCourse(course.id);
+                        const isLabClass = course.isLab && (slot.id < timeSlots.length - 1);
+                        
+                        if (isLabClass) {
+                          skipCells = 1;
+                        }
+
+                        return `
+                          <td colspan="${isLabClass ? 2 : 1}" style="border-right: ${idx + (isLabClass ? 1 : 0) === timeSlots.length - 1 ? 'none' : '1px solid #000000'}; border-bottom: ${dayIndex === days.length - 1 ? 'none' : '1px solid #000000'}; padding: 8px; vertical-align: top; background: white;">
+                            <div class="course-card" style="background: ${colors.bg}; border: 1px solid ${colors.border}; border-left: 4px solid #0f172a; border-radius: 8px; padding: 10px; position: relative;">
+                              <div style="font-weight: 700; color: #1e293b; font-size: 13px; line-height: 1.2;">${course.code}</div>
+                              <div style="color: #64748b; font-size: 11px; margin-top: 4px; font-weight: 500;">Section: <span style="color:#0f172a">${course.section}</span></div>
+                              <div style="color: #64748b; font-size: 11px; font-weight: 500;">Room: <span style="color:#0f172a">${course.room}</span></div>
+                              ${course.isLab ? '<div style="display:inline-block; background: #fee2e2; color: #ef4444; font-size: 10px; font-weight: 600; margin-top: 6px; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Lab (2 hrs)</div>' : ''}
+                              <button onclick="deleteCourse(${course.id})" class="btn-delete" title="Remove Course"><i class="ti ti-trash"></i></button>
+                            </div>
+                          </td>
+                        `;
+                      } else {
+                        return `
+                          <td style="border-right: ${idx === timeSlots.length - 1 ? 'none' : '1px solid #000000'}; border-bottom: ${dayIndex === days.length - 1 ? 'none' : '1px solid #000000'}; padding: 8px; background: white;"></td>
+                        `;
+                      }
+                    }).join('')}
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="modal-overlay" style="display: ${modalOpen ? 'flex' : 'none'}; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 1000;">
+        <div style="background: white; border-radius: 16px; padding: 2rem; width: 90%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15); border: 1px solid #000000;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
+            <h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #1e293b; letter-spacing: -0.5px;">Add New Course</h2>
+            <button onclick="closeModal()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:20px;"><i class="ti ti-x"></i></button>
+          </div>
+          
+          <form id="courseForm" style="display: flex; flex-direction: column; gap: 1.25rem;">
+            <div>
+              <label class="form-label">Course Code</label>
+              <input type="text" id="courseCode" placeholder="e.g., CSE 2355" class="form-input" required>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <div>
+                <label class="form-label">Section</label>
+                <input type="text" id="section" placeholder="e.g., A" class="form-input" required>
+              </div>
+              <div>
+                <label class="form-label">Room Number</label>
+                <input type="text" id="room" placeholder="e.g., 821" class="form-input" required>
+              </div>
+            </div>
+
+            <div>
+              <label class="form-label">Time Slot</label>
+              <select id="timeSlot" class="form-input" style="appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2364748b%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E'); background-repeat: no-repeat; background-position: right 12px top 50%; background-size: 10px auto;" required>
+                <option value="">Select time slot</option>
+                ${timeSlots.map(slot => `<option value="${slot.id}">${slot.label}</option>`).join('')}
+              </select>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px dashed #e2e8f0;">
+              <input type="checkbox" id="isLab" style="width: 16px; height: 16px; cursor: pointer; accent-color: #0f172a;">
+              <label for="isLab" style="font-size: 14px; font-weight: 500; color: #334155; cursor: pointer; flex: 1; user-select: none;">This course includes a 2-hour lab (Takes up 2 consecutive slots)</label>
+            </div>
+
+            <div>
+              <label class="form-label" style="margin-bottom: 0.5rem;">Days</label>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px;">
+                ${days.map(day => `
+                  <label class="checkbox-tile">
+                    <input type="checkbox" class="dayCheckbox" value="${day}">
+                    <span>${day}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 1rem;">
+              <button type="button" onclick="closeModal()" class="btn-modal-secondary">Cancel</button>
+              <button type="submit" class="btn-modal-primary">Add to Schedule</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const form = document.getElementById('courseForm');
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const code = document.getElementById('courseCode').value.trim();
+      const section = document.getElementById('section').value.trim();
+      const room = document.getElementById('room').value.trim();
+      const timeSlotId = parseInt(document.getElementById('timeSlot').value);
+      const isLab = document.getElementById('isLab').checked;
+      
+      const selectedDays = Array.from(document.querySelectorAll('.dayCheckbox:checked'))
+        .map(cb => cb.value);
+
+      if (!code || !section || !room || isNaN(timeSlotId) || selectedDays.length === 0) {
+        alert('Please fill in all fields and select at least one day.');
+        return;
+      }
+
+      const targetSlots = [timeSlotId];
+      if (isLab) {
+        if (timeSlotId === timeSlots.length - 1) {
+          alert('Cannot schedule a 2-hour lab in the final time slot.');
+          return;
+        }
+        targetSlots.push(timeSlotId + 1);
+      }
+
+      for (const day of selectedDays) {
+        for (const slotId of targetSlots) {
+          const conflictingCourse = courses.find(c => {
+            if (!c.days.includes(day)) return false;
+            const existingSlots = [c.timeSlotId];
+            if (c.isLab) existingSlots.push(c.timeSlotId + 1);
+            return existingSlots.includes(slotId);
+          });
+
+          if (conflictingCourse) {
+            const slotDetails = timeSlots.find(s => s.id === slotId);
+            alert(`Time slot "${slotDetails.label}" on ${day} is already taken by "${conflictingCourse.code}"!`);
+            return;
+          }
+        }
+      }
+
+      courses.push({
+        id: nextId++,
+        code,
+        section,
+        room,
+        timeSlotId,
+        isLab,
+        days: selectedDays
+      });
+      closeModal();
+      render();
+    });
+  }
+}
+
+function openModal() {
+  sessionStorage.setItem('modalOpen', 'true');
+  render();
+}
+
+function closeModal() {
+  sessionStorage.removeItem('modalOpen');
+  render();
+}
+
+function deleteCourse(id) {
+  courses = courses.filter(c => c.id !== id);
+  render();
+}
+
+function savePDF() {
+  const element = document.getElementById('timetable-container');
+  if (!element) return;
+
+  // Add a subtle loading cue on the button
+  const pdfBtn = document.querySelector('.btn-secondary');
+  const originalHtml = pdfBtn.innerHTML;
+  pdfBtn.innerHTML = `<i class="ti ti-loader animate-spin"></i> Generating...`;
+  pdfBtn.disabled = true;
+
+  // Configure explicit rendering parameters for high-fidelity conversion
+  const options = {
+    scale: 2,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: '#ffffff',
+    logging: false,
+    windowWidth: 1400 // Locks standard viewport constraints during virtual snapshot capture
+  };
+
+  html2canvas(element, options).then(canvas => {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('l', 'mm', 'a4');
+    
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    
+    // Page dimensions calculation for precise aspect ratio fit
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = pdf.internal.pageSize.getHeight();
+    
+    const margin = 10;
+    const allowedWidth = pdfWidth - (margin * 2);
+    const allowedHeight = pdfHeight - (margin * 2);
+    
+    let imgWidth = allowedWidth;
+    let imgHeight = (canvas.height * imgWidth) / canvas.width;
+    
+    // Handle edge case scaling down if total height spills past vertical printable zones
+    if (imgHeight > allowedHeight) {
+      imgHeight = allowedHeight;
+      imgWidth = (canvas.width * imgHeight) / canvas.height;
+    }
+
+    // Horizontal alignment center offset math positioning
+    const xOffset = margin + (allowedWidth - imgWidth) / 2;
+    const yOffset = margin + (allowedHeight - imgHeight) / 2;
+
+    pdf.addImage(imgData, 'JPEG', xOffset, yOffset, imgWidth, imgHeight, undefined, 'FAST');
+    pdf.save('weekly-class-matrix.pdf');
+    
+    // Reset button state tracking
+    pdfBtn.innerHTML = originalHtml;
+    pdfBtn.disabled = false;
+  }).catch(err => {
+    console.error('PDF Generation Failed:', err);
+    alert('Failed to generate PDF. Please try again.');
+    pdfBtn.innerHTML = originalHtml;
+    pdfBtn.disabled = false;
+  });
+}
+
+render();
+</script>
+
+<style>
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: none;
+  background: #0f172a;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.btn-primary:hover {
+  background: #1e293b !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+}
+.btn-primary:active { transform: translateY(0); }
+
+.btn-secondary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: 1px solid #000000;
+  background: white;
+  color: #334155;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a;
+}
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-modal-primary {
+  flex: 2;
+  padding: 11px 16px;
+  background: #0f172a;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s ease;
+}
+.btn-modal-primary:hover { background: #1e293b !important; }
+
+.btn-modal-secondary {
+  flex: 1;
+  padding: 11px 16px;
+  background: white;
+  color: #475569;
+  border: 1px solid #000000;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s ease;
+}
+.btn-modal-secondary:hover { background: #f8fafc !important; }
+
+.course-card .btn-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.15s ease;
+}
+.course-card:hover .btn-delete { opacity: 1; }
+.course-card .btn-delete:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+}
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1e293b;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+}
+.form-input:focus {
+  outline: none;
+  border-color: #0f172a !important;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08) !important;
+}
+
+.checkbox-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #000000;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.checkbox-tile:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+.checkbox-tile input[type="checkbox"] {
+  accent-color: #0f172a;
+  width: 15px;
+  height: 15px;
+}
+.checkbox-tile:has(input:checked) {
+  background: #f1f5f9;
+  border-color: #0f172a;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+#modal-overlay { animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+#modal-overlay > div { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes slideUp { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+</style>
